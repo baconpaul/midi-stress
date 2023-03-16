@@ -8,11 +8,12 @@ set(RTMIDI_API_JACK OFF CACHE BOOL "dont" FORCE)
 set(RTMIDI_API_ALSA OFF CACHE BOOL "dont" FORCE)
 set(RTMIDI_BUILD_TESTING OFF CACHE BOOL "dont" FORCE)
 add_subdirectory(libs/rtmidi)
+add_subdirectory(libs/isocline)
 
 
 add_executable(${PROJECT_NAME}
                src/main.cpp
                )
-target_link_libraries(${PROJECT_NAME} PUBLIC rtmidi)
+target_link_libraries(${PROJECT_NAME} PUBLIC rtmidi isocline)
 
                
