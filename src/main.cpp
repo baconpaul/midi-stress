@@ -6,10 +6,71 @@
 #include <string>
 #include <thread>
 #include <chrono>
+#include <set>
 
 std::queue<std::string> messages;
 std::mutex messageMutex;
 
+struct midiOp
+{
+    RtMidiOut &out;
+    midiOp(RtMidiOut &o) : out(o) {};
+    virtual ~midiOp() = default;
+    virtual void step() = 0;
+};
+
+struct randomNotes : midiOp
+{
+    std::set<int> notesOn;
+    randomNotes(RtMidiOut &o) : midiOp(o) {}
+    ~randomNotes()
+    {
+        // send all notesOff
+        for (const auto &n : notesOn)
+        {
+            unsigned char mm[4];
+            mm[0] = 0x80;
+            mm[1] = n;
+            mm[2] = 0;
+            out.sendMessage(mm, 3);
+        }
+    }
+
+    virtual void step()
+    {
+        auto r = rand() % 200;
+        if (r < 3)
+        {
+            auto q = rand() % 127;
+            while (notesOn.find(q) != notesOn.end() && notesOn.size() < 40)
+                q = rand() % 127;
+            unsigned char mm[4];
+            mm[0] = 0x90;
+            mm[1] = q;
+            mm[2] = 90;
+            out.sendMessage(mm, 3);
+            notesOn.insert(q);
+        }
+        else if (r < 6 && !notesOn.empty())
+        {
+            auto qi = rand() % notesOn.size();
+            auto q = 0;
+            for (const auto &n : notesOn)
+            {
+                if (qi == 0)
+                    q = n;
+                qi--;
+            }
+            notesOn.erase(q);
+
+            unsigned char mm[4];
+            mm[0] = 0x80;
+            mm[1] = q;
+            mm[2] = 0;
+            out.sendMessage(mm, 3);
+        }
+    }
+};
 
 void runMidiThread()
 {
@@ -21,6 +82,8 @@ void runMidiThread()
     std::string portName = midiout->getPortName(0);
     std::cout << "  Sending : " << portName << '\n';
     midiout->openPort(0);
+
+    std::unique_ptr<midiOp> op;
 
     while(true)
     {
@@ -59,6 +122,12 @@ void runMidiThread()
             mm[2] = 90;
             midiout->sendMessage(mm, 3);
         }
+
+        if (msg == "rand")
+            op = std::make_unique<randomNotes>(*midiout);
+
+        if (op)
+            op->step();
 
         if (!msg.empty())
             std::cout << "THREAD " << msg << std::endl;
