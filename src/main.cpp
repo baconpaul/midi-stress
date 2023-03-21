@@ -17,6 +17,23 @@ struct midiOp
     midiOp(RtMidiOut &o) : out(o) {};
     virtual ~midiOp() = default;
     virtual void step() = 0;
+
+    void sendNoteOff(int n, int v = 0) {
+        unsigned char mm[4];
+        mm[0] = 0x80;
+        mm[1] = n;
+        mm[2] = v;
+        out.sendMessage(mm, 3);
+    }
+
+    void sendNoteOn(int n, int v)
+    {
+        unsigned char mm[4];
+        mm[0] = 0x90;
+        mm[1] = n;
+        mm[2] = v;
+        out.sendMessage(mm, 3);
+    }
 };
 
 struct randomNotes : midiOp
@@ -28,27 +45,19 @@ struct randomNotes : midiOp
         // send all notesOff
         for (const auto &n : notesOn)
         {
-            unsigned char mm[4];
-            mm[0] = 0x80;
-            mm[1] = n;
-            mm[2] = 0;
-            out.sendMessage(mm, 3);
+            sendNoteOff(n);
         }
     }
 
     virtual void step()
     {
-        auto r = rand() % 200;
+        auto r = rand() % 100;
         if (r < 3)
         {
             auto q = rand() % 127;
             while (notesOn.find(q) != notesOn.end() && notesOn.size() < 40)
                 q = rand() % 127;
-            unsigned char mm[4];
-            mm[0] = 0x90;
-            mm[1] = q;
-            mm[2] = 90;
-            out.sendMessage(mm, 3);
+            sendNoteOn(q, 90);
             notesOn.insert(q);
         }
         else if (r < 6 && !notesOn.empty())
@@ -63,12 +72,47 @@ struct randomNotes : midiOp
             }
             notesOn.erase(q);
 
-            unsigned char mm[4];
-            mm[0] = 0x80;
-            mm[1] = q;
-            mm[2] = 0;
-            out.sendMessage(mm, 3);
+            sendNoteOff(q);
         }
+    }
+};
+
+
+struct ascend : midiOp
+{
+    std::set<int> notesOn;
+    ascend(RtMidiOut &o) : midiOp(o) {}
+    ~ascend()
+    {
+        // send all notesOff
+        for (const auto &n : notesOn)
+        {
+            sendNoteOff(n);
+        }
+    }
+
+    // called every ms
+    int64_t counter{0};
+    int32_t note{60};
+    virtual void step()
+    {
+        if (counter == 0)
+        {
+            sendNoteOn(note, 90);
+            notesOn.insert(note);
+        }
+        if (counter == 500)
+        {
+            sendNoteOff(note);
+            notesOn.erase(note);
+            note ++;
+            if (note > 72) note = 60;
+        }
+        if (counter == 1000)
+        {
+            counter = -1;
+        }
+        counter ++;
     }
 };
 
@@ -125,6 +169,8 @@ void runMidiThread()
 
         if (msg == "rand")
             op = std::make_unique<randomNotes>(*midiout);
+        if (msg == "asc")
+            op = std::make_unique<ascend>(*midiout);
 
         if (op)
             op->step();
